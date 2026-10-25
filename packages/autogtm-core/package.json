@@ -18,9 +18,10 @@
     "./types": "./src/types/index.ts"
   },
   "scripts": {
-    "build": "tsc --noEmit false --skipLibCheck --noImplicitAny false --strictNullChecks false --allowJs",
+    "build": "tsc -p tsconfig.build.json --noEmit false --skipLibCheck --noImplicitAny false --strictNullChecks false --allowJs",
     "check-types": "tsc --noEmit",
     "lint": "eslint .",
+    "test": "vitest run",
     "format": "prettier --write \"**/*.{ts,tsx,md}\""
   },
   "dependencies": {
@@ -34,6 +35,7 @@
     "@types/node": "^20.11.28",
     "eslint": "^8",
     "prettier": "^3.5.3",
-    "typescript": "^5.4.4"
+    "typescript": "^5.4.4",
+    "vitest": "^3.2.7"
   }
 }
