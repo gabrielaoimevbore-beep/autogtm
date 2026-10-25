@@ -145,6 +145,12 @@ interface Company {
   auto_add_run_hour_utc?: number;
   auto_add_digest_email?: string | null;
   auto_add_regenerate_drafts?: boolean;
+  // Precleared compliance check (optional, off by default)
+  precleared_enabled?: boolean;
+  precleared_sender_country?: string;
+  precleared_address_source?: string;
+  precleared_prospect_country?: string | null;
+  precleared_last_hold?: { kind: string; message: string; fix_url: string | null; at: string } | null;
   system_enabled: boolean;
 }
 
@@ -2049,6 +2055,13 @@ export function Dashboard({ userEmail }: DashboardProps) {
                                               toast({ title: 'Campaign activated' });
                                               setCampaigns(campaigns.map(c => c.id === campaign.id ? { ...c, status: 'active' } : c));
                                             } else {
+                                              const data = await res.json().catch(() => ({}));
+                                              if (res.status === 409 && data.message) {
+                                                // Precleared held the lead back: it now shows under Skipped with the reason.
+                                                toast({ variant: 'destructive', title: 'Campaign not activated', description: data.message });
+                                                fetchData();
+                                                return;
+                                              }
                                               throw new Error();
                                             }
                                           } catch {
