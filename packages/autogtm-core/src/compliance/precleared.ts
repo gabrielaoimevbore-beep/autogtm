@@ -137,6 +137,19 @@ export function isPreclearedHoldError(error: unknown): error is PreclearedHoldEr
     || (error instanceof Error && error.name === 'PreclearedHoldError' && 'clearance' in error);
 }
 
+/**
+ * The company row could not be loaded, so whether the check is on is unknown.
+ * Both send paths treat that as a hold: nothing goes out unchecked. (A row that
+ * loads without the precleared_* columns is a different case and reads as "off".)
+ */
+export function companyUnavailableClearance(error: unknown): HeldClearance {
+  const detail = describeError(error);
+  return held(
+    'unavailable',
+    `The company's settings could not be loaded${detail ? ` (${detail})` : ''}, so the compliance check could not be made. Leads stay in Ready to Add and are checked again on the next run.`,
+  );
+}
+
 /** Where cached verdicts live. The default is the precleared_checks table; tests inject a Map. */
 export interface PreclearedStore {
   get(email: string, inputsHash: string): Promise<PreclearedCheck | null>;
@@ -410,7 +423,7 @@ async function check(email: string, settings: PreclearedSettings, deps: Preclear
         status: 'denied',
         verdict: 'invalid_request',
         reason: `request rejected (${redact(errorMessage || errorCode || 'invalid request', deps.apiKey)})`,
-        nextStep: 'Check the address, then Unskip.',
+        nextStep: 'Check the address, then press Undo on the lead to check it again.',
         receiptId: '',
         recipientCountry: '',
       };
@@ -506,7 +519,7 @@ export function denialMessage(verdict: DeniedClearance['verdict'], reason: strin
   const rule = clean(reason) || VERDICT_FALLBACK[verdict];
   let step = clean(nextStep);
   if (!step && verdict === 'unknown') {
-    step = 'If all your leads are in one country, set the prospects\' country in the Autopilot tab, then Unskip.';
+    step = 'If all your leads are in one country, set the prospects\' country in the Autopilot tab, then press Undo on the lead to check it again.';
   }
   const head = `Precleared: ${rule}${/[.!?]$/.test(rule) ? '' : '.'}`;
   return (step ? `${head} ${step}` : head).slice(0, MAX_MESSAGE);
@@ -551,6 +564,9 @@ function describeError(e: unknown): string {
     if (e.name === 'TimeoutError' || e.name === 'AbortError') return `timed out after ${PRECLEARED_TIMEOUT_MS / 1000}s`;
     return `${e.name}: ${e.message}`;
   }
+  // A Supabase PostgrestError is a plain object with a message, not an Error.
+  if (isRecord(e) && typeof e.message === 'string') return clean(e.message);
+  if (e === null || e === undefined) return '';
   return String(e);
 }
 

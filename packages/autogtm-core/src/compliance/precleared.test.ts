@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyPreclearedCheck,
   clearLeadForOutreach,
+  companyUnavailableClearance,
   denialMessage,
   isPreclearedHoldError,
   PRECLEARED_API_URL,
@@ -211,7 +212,7 @@ describe('clearLeadForOutreach', () => {
     const result = await clearLeadForOutreach({ email: 'who@example.io', settings, deps });
     expect(result).toMatchObject({ status: 'denied', verdict: 'unknown', receiptId: 'rcpt_unknown' });
     expect(result.status === 'denied' && result.message).toBe(
-      "Precleared: Could not establish the recipient country. If all your leads are in one country, set the prospects' country in the Autopilot tab, then Unskip.",
+      "Precleared: Could not establish the recipient country. If all your leads are in one country, set the prospects' country in the Autopilot tab, then press Undo on the lead to check it again.",
     );
     expect(store.save).not.toHaveBeenCalled();
   });
@@ -220,7 +221,7 @@ describe('clearLeadForOutreach', () => {
     const fetchImpl = fetchReturning(response(400, { error: 'invalid_request', message: 'recipient_email is not a valid address' }));
     const { deps, store } = makeDeps(fetchImpl);
     const result = await clearLeadForOutreach({ email: 'not-an-email', settings, deps });
-    expect(result).toMatchObject({ status: 'denied', verdict: 'invalid_request', message: 'Precleared: request rejected (recipient_email is not a valid address). Check the address, then Unskip.' });
+    expect(result).toMatchObject({ status: 'denied', verdict: 'invalid_request', message: 'Precleared: request rejected (recipient_email is not a valid address). Check the address, then press Undo on the lead to check it again.' });
     expect(store.save).not.toHaveBeenCalled();
   });
 
@@ -455,5 +456,31 @@ describe('PreclearedHoldError', () => {
       expect(isPreclearedHoldError(new Error('other'))).toBe(false);
       expect(preclearedHoldRecord(clearance, NOW)).toEqual({ kind: 'out_of_checks', message: clearance.message, fix_url: PRECLEARED_BUY_URL, at: NOW.toISOString() });
     });
+  });
+});
+
+describe('companyUnavailableClearance', () => {
+  it('is a hold, never a send, when the company row cannot be loaded', () => {
+    // Supabase reports a PostgrestError as a plain object, not an Error.
+    const clearance = companyUnavailableClearance({ message: 'connection refused', code: '08006', details: null, hint: null });
+    expect(clearance).toMatchObject({ status: 'held', kind: 'unavailable', fixUrl: null });
+    expect(clearance.message).toContain("company's settings could not be loaded (connection refused)");
+    expect(clearance.message).toContain('Leads stay in Ready to Add');
+    expect(new PreclearedHoldError(clearance).message).toBe(clearance.message);
+  });
+
+  it('handles an Error and a missing row the same way', () => {
+    expect(companyUnavailableClearance(new TypeError('fetch failed')).message).toContain('(TypeError: fetch failed)');
+    const noRow = companyUnavailableClearance(null);
+    expect(noRow).toMatchObject({ status: 'held', kind: 'unavailable' });
+    expect(noRow.message).toBe(
+      "The company's settings could not be loaded, so the compliance check could not be made. Leads stay in Ready to Add and are checked again on the next run.",
+    );
+  });
+
+  it('keeps the message to one readable line', () => {
+    const clearance = companyUnavailableClearance({ message: 'line one\nline two\t' + 'x'.repeat(400) });
+    expect(clearance.message).not.toMatch(/[\n\t]/);
+    expect(clearance.message.length).toBeLessThanOrEqual(300);
   });
 });

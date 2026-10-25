@@ -1696,7 +1696,11 @@ export function Dashboard({ userEmail }: DashboardProps) {
                                             try {
                                               const supabase = await fetch(`/api/leads/${lead.id}/unskip`, { method: 'POST' });
                                               if (supabase.ok) {
-                                                setLeads(leads.map(l => l.id === lead.id ? { ...l, campaign_status: 'pending' as const, skip_reason: null } : l));
+                                                // A lead the Precleared check held back keeps its suggested campaign (back to Ready to Add); any other skip drops it.
+                                                const keepSuggestion = (lead.skip_reason || '').startsWith('Precleared:') && !!lead.suggested_campaign_id;
+                                                setLeads(leads.map(l => l.id === lead.id
+                                                  ? { ...l, campaign_status: 'pending' as const, skip_reason: null, ...(keepSuggestion ? {} : { suggested_campaign_id: null, suggested_campaign_reason: null }) }
+                                                  : l));
                                               }
                                             } catch {}
                                           }}

@@ -14,7 +14,7 @@ import {
   markLeadRouted,
   updateCampaign,
 } from '../db/autogtmDbCalls';
-import { applyPreclearedCheck, PreclearedHoldError } from '../compliance/precleared';
+import { applyPreclearedCheck, companyUnavailableClearance, PreclearedHoldError } from '../compliance/precleared';
 import type { Company, Campaign } from '../types';
 
 /** Convert plain text email body to HTML for Instantly */
@@ -125,15 +125,19 @@ export async function sendDraftCampaignForLead(params: {
 
   const supabase = getSupabaseClient();
   // The whole row: sending accounts plus the Precleared settings (a database
-  // without the precleared_* columns yet reads as "check off").
-  const { data: company } = await supabase
+  // without the precleared_* columns yet reads as "check off"). If the row cannot
+  // be loaded, whether the check is on is unknown, so nothing is sent.
+  const { data: company, error: companyError } = await supabase
     .from('companies')
     .select('*')
     .eq('id', campaign.company_id)
     .single();
+  if (companyError || !company) {
+    throw new PreclearedHoldError(companyUnavailableClearance(companyError));
+  }
   const fallbackCompanySendingEmails: string[] = params.companySendingEmails?.length
     ? params.companySendingEmails
-    : company?.sending_emails || [];
+    : company.sending_emails || [];
 
   const { data: lead } = await supabase
     .from('leads')

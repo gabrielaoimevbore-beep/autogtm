@@ -1393,12 +1393,24 @@ export const autoAddSweepCompany = inngest.createFunction(
       countReadyToAddLeads(companyId, minFitScore)
     );
 
-    const complianceNotice = complianceHold
-      ? `Precleared could not check ${complianceHeld} lead${complianceHeld === 1 ? '' : 's'}: ${complianceHold.message} ${complianceHeld === 1 ? 'It stays' : 'They stay'} in Ready to Add.`
-      : null;
+    // Anything the compliance check did to this run goes in the digest, even on a
+    // day when nothing was added: leads it could not check, and leads it said no to.
+    const complianceDenied = skipReasons.compliance_hold || 0;
+    const complianceNoticeParts: string[] = [];
+    if (complianceHold) {
+      complianceNoticeParts.push(
+        `Precleared could not check ${complianceHeld} lead${complianceHeld === 1 ? '' : 's'}: ${complianceHold.message} ${complianceHeld === 1 ? 'It stays' : 'They stay'} in Ready to Add.`
+      );
+    }
+    if (complianceDenied > 0) {
+      complianceNoticeParts.push(
+        `Precleared said no to ${complianceDenied} lead${complianceDenied === 1 ? '' : 's'}: ${complianceDenied === 1 ? 'it is' : 'they are'} under Skipped in the dashboard with the rule that applied and what would change it.`
+      );
+    }
+    const complianceNotice = complianceNoticeParts.length > 0 ? complianceNoticeParts.join(' ') : null;
 
     // Send digest email (skip on zero-add days per product decision, unless the
-    // compliance check held leads back: that is never left silent)
+    // compliance check held leads back or turned them down: that is never left silent)
     let digestSent = false;
     let digestError: string | null = null;
     if (addedLeadIds.length > 0 || complianceNotice) {
@@ -1490,7 +1502,7 @@ function renderAutoAddDigestHtml(params: {
   trigger: 'cron' | 'manual';
   appUrl: string;
   regeneratedCount: number;
-  /** Set when the Precleared compliance check could not be made for some leads. */
+  /** Set when the Precleared compliance check could not be made for some leads, or said no to some. */
   complianceNotice?: string | null;
   complianceFixUrl?: string | null;
 }): string {
@@ -1523,7 +1535,7 @@ function renderAutoAddDigestHtml(params: {
 
   const complianceNoticeHtml = complianceNotice
     ? `<div style="margin-top:16px;padding:12px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:13px;color:#92400e;">
-        <strong>Compliance check on hold.</strong> ${esc(complianceNotice)}
+        <strong>Compliance check.</strong> ${esc(complianceNotice)}
         ${complianceFixUrl ? ` <a href="${esc(complianceFixUrl)}" style="color:#92400e;font-weight:600;">Fix it</a>` : ''}
        </div>`
     : '';

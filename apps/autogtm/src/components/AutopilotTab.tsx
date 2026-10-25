@@ -169,6 +169,31 @@ export function AutopilotTab({ company, onCompanyUpdated }: AutopilotTabProps) {
 		[company.id, onCompanyUpdated, toast]
 	);
 
+	// The hold banner reads companies.precleared_last_hold, which a run writes (or
+	// clears). It is re-read whenever the run history is, so a hold recorded by
+	// Run Now shows without a page reload, and clears again once a check succeeds.
+	// onCompanyUpdated is read through a ref: the parent passes a new function on
+	// every render, and putting it in loadRuns's dependencies would refetch on each one.
+	const onCompanyUpdatedRef = useRef(onCompanyUpdated);
+	onCompanyUpdatedRef.current = onCompanyUpdated;
+	const preclearedHoldRef = useRef(preclearedHold);
+	preclearedHoldRef.current = preclearedHold;
+	const refreshPreclearedHold = useCallback(async () => {
+		if (!preclearedEnabled) return;
+		try {
+			const res = await fetch(`/api/companies/${company.id}`);
+			if (!res.ok) return;
+			const { company: fresh } = await res.json();
+			if (!fresh || !('precleared_last_hold' in fresh)) return;
+			const hold = fresh.precleared_last_hold ?? null;
+			if (JSON.stringify(hold) !== JSON.stringify(preclearedHoldRef.current)) {
+				onCompanyUpdatedRef.current({ precleared_last_hold: hold });
+			}
+		} catch {
+			// The banner keeps showing the last known state.
+		}
+	}, [company.id, preclearedEnabled]);
+
 	const loadRuns = useCallback(async () => {
 		setRunsLoading(true);
 		try {
@@ -177,10 +202,11 @@ export function AutopilotTab({ company, onCompanyUpdated }: AutopilotTabProps) {
 				const { runs: data } = await res.json();
 				setRuns(data || []);
 			}
+			await refreshPreclearedHold();
 		} finally {
 			setRunsLoading(false);
 		}
-	}, [company.id]);
+	}, [company.id, refreshPreclearedHold]);
 
 	useEffect(() => { loadRuns(); }, [loadRuns]);
 

@@ -7,7 +7,7 @@ import {
 } from '../db/autogtmDbCalls';
 import { sendDraftCampaignForLead } from './createCampaignForPersona';
 import { regenerateEmailSequenceWithFeedback } from '../ai/generateEmailCopy';
-import { applyPreclearedCheck, PreclearedHoldError } from '../compliance/precleared';
+import { applyPreclearedCheck, companyUnavailableClearance, PreclearedHoldError } from '../compliance/precleared';
 
 /** Default feedback used when Autopilot regenerates stale draft copy before sending. */
 const AUTO_REGENERATE_FEEDBACK =
@@ -185,12 +185,19 @@ export async function addLeadToCampaignCore(params: {
 
   // Optional compliance check (Precleared), one per lead before its first push to
   // Instantly. The whole company row is read so a database without the
-  // precleared_* columns yet simply reads as "check off".
-  const { data: company } = await supabase
+  // precleared_* columns yet simply reads as "check off". A row that cannot be
+  // loaded at all is different: whether the check is on is unknown, so the lead
+  // is held rather than sent.
+  const { data: company, error: companyError } = await supabase
     .from('companies')
     .select('*')
     .eq('id', campaign.company_id)
     .single();
+  if (companyError || !company) {
+    const unavailable = companyUnavailableClearance(companyError);
+    if (softFail) return { ok: false, reason: 'compliance_check_unavailable', message: unavailable.message, fixUrl: null };
+    throw new PreclearedHoldError(unavailable);
+  }
   const clearance = await applyPreclearedCheck({ leadId, email: lead.email, company });
   if (clearance.status === 'held') {
     // Not skipped: the lead waits in Ready to Add for the next run.
